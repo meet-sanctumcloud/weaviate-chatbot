@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL;
 import { useState } from "react";
 import axios from "axios";
 
@@ -20,7 +21,7 @@ export const useChat = () => {
     setMessages((prev) => [...prev, userMessage]);
 
     try {
-      const response = await axios.post("/api/chat", {
+      const response = await axios.post(`${API_URL}/api/chat`, {
         message: message,
       });
 

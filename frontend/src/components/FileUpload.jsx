@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL;
 import React, { useState } from "react";
 import axios from "axios";
 
@@ -25,7 +26,7 @@ const FileUpload = ({ onUploadSuccess }) => {
     formData.append("pdf", file);
 
     try {
-      const response = await axios.post("/api/upload-pdf", formData, {
+      const response = await axios.post(`${API_URL}/api/upload-pdf`, formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },

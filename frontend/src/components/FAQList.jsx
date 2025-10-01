@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL;
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import {
@@ -22,7 +23,7 @@ const FAQList = ({ onBackToUpload }) => {
   const fetchFAQs = async () => {
     try {
       setLoading(true);
-      const response = await axios.get("/api/debug");
+      const response = await axios.get(`${API_URL}/api/debug`);
       if (response.data.faqs && response.data.faqCount > 0) {
         // For now, we only have question titles from debug endpoint
         // You might want to create a new endpoint to get full FAQ data

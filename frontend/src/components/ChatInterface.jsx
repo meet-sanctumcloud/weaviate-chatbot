@@ -1,3 +1,4 @@
+const API_URL = import.meta.env.VITE_API_URL;
 import React, { useState, useRef, useEffect } from "react";
 import axios from "axios";
 
@@ -31,7 +32,7 @@ const ChatInterface = ({ onBackToUpload }) => {
     setIsLoading(true);
 
     try {
-      const response = await axios.post("/api/chat", {
+      const response = await axios.post(`${API_URL}/api/chat`, {
         message: inputMessage,
       });
 
