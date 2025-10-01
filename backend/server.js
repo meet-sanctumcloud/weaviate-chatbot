@@ -19,7 +19,10 @@ const app = express();
 // Add CORS middleware
 app.use(
   cors({
-    origin: "http://localhost:3000",
+    origin: [
+      "http://localhost:3000", // for local dev
+      "https://hks88wwswgso00wwg0o88wog.prod.sanctumcloud.com", // your deployed frontend
+    ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
