@@ -409,14 +409,27 @@ app.post("/api/chat", async (req, res) => {
         ? 1 - bestMatch._additional.distance
         : 0;
 
-    // Step 3: If similarity is low, suggest clarification
+    const MIN_SIMILARITY_FOR_SUGGESTION = 0.6; // tweak between 0.5–0.7
+
+    // Step 3: Suggest clarification only if similarity is reasonably high
     if (similarity < 0.75) {
-      lastSuggestion = bestMatch; // ✅ save suggestion
-      return res.json({
-        message: `Did you mean: "${bestMatch.question}"?`,
-        suggestion: bestMatch.question,
-        confidence: "low",
-      });
+      if (similarity >= MIN_SIMILARITY_FOR_SUGGESTION) {
+        lastSuggestion = bestMatch; // save suggestion
+        return res.json({
+          message: `🤔 Did you mean: "${bestMatch.question}"?`,
+          suggestion: bestMatch.question,
+          confidence: "low",
+        });
+      } else {
+        // similarity too low → don't suggest unrelated FAQ
+        lastSuggestion = null;
+        return res.json({
+          message:
+            "I'm sorry, I couldn't find any relevant information in our FAQ to answer your question. Please contact our support team for further assistance.",
+          sources: [],
+          confidence: 0,
+        });
+      }
     }
 
     // Step 4: Use normal OpenAI answering with relevantFAQs
