@@ -416,7 +416,7 @@ app.post("/api/chat", async (req, res) => {
       if (similarity >= MIN_SIMILARITY_FOR_SUGGESTION) {
         lastSuggestion = bestMatch; // save suggestion
         return res.json({
-          message: `🤔 Did you mean: "${bestMatch.question}"?`,
+          message: `Did you mean: "${bestMatch.question}"?`,
           suggestion: bestMatch.question,
           confidence: "low",
         });
