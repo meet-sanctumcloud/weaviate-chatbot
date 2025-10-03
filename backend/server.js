@@ -147,6 +147,75 @@ async function importFAQs(client, faqs) {
   }
 }
 
+async function expandQuery(query) {
+  if (query.length < 15) {
+    // you can tweak threshold
+    try {
+      const response = await fetch(
+        "https://api.openai.com/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-3.5-turbo",
+            messages: [
+              {
+                role: "system",
+                content:
+                  "Expand short or vague user queries into complete university FAQ-style questions. Example: 'courses?' → 'What programs or courses does the university offer?'",
+              },
+              { role: "user", content: query },
+            ],
+            max_tokens: 50,
+            temperature: 0.3,
+          }),
+        }
+      );
+
+      const completion = await response.json();
+      if (completion.error) throw new Error(completion.error.message);
+
+      const expanded = completion.choices[0].message.content.trim();
+      console.log("🔄 Expanded query:", expanded);
+      return expanded;
+    } catch (err) {
+      console.error("❌ Error expanding query:", err);
+      return query; // fallback to original query
+    }
+  }
+  return query;
+}
+
+async function classifyConfirmation(userInput) {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-3.5-turbo",
+      messages: [
+        {
+          role: "system",
+          content:
+            "You are a classifier. Decide if the user reply is CONFIRMATION (they mean yes/agree/correct), REJECTION (they mean no), or OTHER. Respond with only CONFIRMATION, REJECTION, or OTHER.",
+        },
+        { role: "user", content: userInput },
+      ],
+      max_tokens: 5,
+      temperature: 0,
+    }),
+  });
+
+  const completion = await response.json();
+  const label = completion.choices[0].message.content.trim().toUpperCase();
+  return label === "CONFIRMATION";
+}
+
 // PDF Upload and Processing endpoint
 app.post("/api/upload-pdf", upload.single("pdf"), async (req, res) => {
   try {
@@ -286,10 +355,14 @@ app.post("/api/search", async (req, res) => {
   }
 });
 
+// Store last suggestion in memory (per session/user ideally)
+let lastSuggestion = null;
+
 // Chat endpoint (same as before)
 app.post("/api/chat", async (req, res) => {
   try {
-    const { message } = req.body;
+    let { message } = req.body;
+    message = message.trim().toLowerCase();
 
     if (!message) {
       return res.status(400).json({ error: "Message is required" });
@@ -297,16 +370,30 @@ app.post("/api/chat", async (req, res) => {
 
     console.log("Chat query with nearText:", message);
 
+    // ✅ If user says "yes" and we have a pending suggestion
+    if (lastSuggestion && (await classifyConfirmation(message))) {
+      const suggestedFAQ = lastSuggestion;
+      lastSuggestion = null;
+      return res.json({
+        message: suggestedFAQ.answer,
+        sources: [suggestedFAQ],
+        confidence: "medium",
+      });
+    }
+
+    // Step 1: Expand query if short
+    const expandedMessage = await expandQuery(message);
+
+    // Step 2: Normal Weaviate search
     const searchResult = await weaviateClient.graphql
       .get()
       .withClassName("FAQ")
-      .withFields("question answer category")
-      .withNearText({ concepts: [message] })
+      .withFields("question answer category _additional { distance }")
+      .withNearText({ concepts: [expandedMessage] })
       .withLimit(3)
       .do();
 
     const relevantFAQs = searchResult.data.Get?.FAQ || [];
-
     if (relevantFAQs.length === 0) {
       return res.json({
         message:
@@ -316,8 +403,24 @@ app.post("/api/chat", async (req, res) => {
       });
     }
 
-    const prompt = createPrompt(message, relevantFAQs);
+    const bestMatch = relevantFAQs[0];
+    const similarity =
+      bestMatch._additional?.distance !== undefined
+        ? 1 - bestMatch._additional.distance
+        : 0;
 
+    // Step 3: If similarity is low, suggest clarification
+    if (similarity < 0.75) {
+      lastSuggestion = bestMatch; // ✅ save suggestion
+      return res.json({
+        message: `Did you mean: "${bestMatch.question}"?`,
+        suggestion: bestMatch.question,
+        confidence: "low",
+      });
+    }
+
+    // Step 4: Use normal OpenAI answering with relevantFAQs
+    const prompt = createPrompt(message, relevantFAQs);
     const openaiResponse = await fetch(
       "https://api.openai.com/v1/chat/completions",
       {
@@ -329,6 +432,7 @@ app.post("/api/chat", async (req, res) => {
         body: JSON.stringify({
           model: "gpt-3.5-turbo",
           messages: [
+            // { role: "system", content: "Answer only using FAQ context." },
             {
               role: "system",
               content: `You are a helpful FAQ assistant. Answer questions ONLY using the provided FAQ context. If the answer isn't in the FAQs, politely decline to answer. Keep responses concise and helpful.`,
@@ -337,6 +441,7 @@ app.post("/api/chat", async (req, res) => {
               role: "user",
               content: prompt,
             },
+            { role: "user", content: prompt },
           ],
           max_tokens: 500,
           temperature: 0.3,
